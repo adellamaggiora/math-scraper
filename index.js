@@ -3,42 +3,40 @@ const { Options } = require('selenium-webdriver/firefox');
 const path = require('path');
 const fs = require('fs');
 
-const createFolder = (downloadFolderPath) => {
-    if (!fs.existsSync(downloadFolderPath)) {
-        fs.mkdirSync(downloadFolderPath, { recursive: true });
+const createFolder = (folderPath) => {
+    if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
     }
 }
 
-const buildDriverOptions = (downloadFolderPath) => {
+const buildDriverOptions = (tmpFolder) => {
     const options = new Options();
     options.setPreference('browser.download.folderList', 2);
-    options.setPreference('browser.download.dir', downloadFolderPath);
+    options.setPreference('browser.download.dir', tmpFolder);
     options.setPreference('browser.helperApps.neverAsk.saveToDisk', 'application/pdf');
     options.setPreference('pdfjs.disabled', true);
     return options;
 }
 
 const moveFilesToCategoryFolder = (sourceFolder, destinationFolder) => {
-    fs.readdir(sourceFolder, (err, files) => {
-        if (err) console.log(err);
-
-        files.forEach(file => {
+    try {
+        const files = fs.readdirSync(sourceFolder);
+        for (const file of files) {
             const sourcePath = path.join(sourceFolder, file);
             const destinationPath = path.join(destinationFolder, file);
-
-            fs.rename(sourcePath, destinationPath, (err) => {
-                if (err) console.log(err);
-            });
-        });
-    });
+            fs.renameSync(sourcePath, destinationPath);
+        }  
+    } catch (error) {
+        console.error(error);
+    }
 }
 
 (async function scrape() {
-    const downloadFolderPath = path.join(__dirname, 'download');
-    createFolder(downloadFolderPath);
 
-    const options = buildDriverOptions(downloadFolderPath);
+    const tmpFolder = path.join(__dirname, 'tmp');
+    createFolder(tmpFolder);
 
+    const options = buildDriverOptions(tmpFolder);
     const driver = await new Builder().forBrowser(Browser.FIREFOX).setFirefoxOptions(options).build();
 
     try {
@@ -50,12 +48,12 @@ const moveFilesToCategoryFolder = (sourceFolder, destinationFolder) => {
 
         for (let i = 2; i <= menuItemsCount.length; i++) {
             const item = await driver.findElement(By.css(`div.AccordionPanel:nth-child(3) > div:nth-child(2) > ul:nth-child(1) li:nth-child(${i}) a`));
-            const category = (await item.getText()).replaceAll(' ', '_');
-            const categoryPath = path.join(downloadFolderPath, category);
+            let category = (await item.getText()).replaceAll(' ', '_');
+            category = `${i-1}-${category}` 
+            const categoryPath = path.join(__dirname, 'downloads', category);
             createFolder(categoryPath);
 
             await item.click();
-            // await driver.sleep(500);
 
             const rows = await driver.findElements(By.css('table > tbody > tr > td.link'));
 
@@ -63,12 +61,9 @@ const moveFilesToCategoryFolder = (sourceFolder, destinationFolder) => {
                 const refreshedRows = await driver.findElements(By.css('table > tbody > tr > td.link'));
                 const row = refreshedRows[j];
                 await row.click();
-                // await driver.sleep(500);
             }
 
-            // Sposta i file scaricati nella cartella categoria appropriata.
-            // Nota: questa operazione assume che tutti i file siano stati scaricati nella cartella di download principale.
-            moveFilesToCategoryFolder(downloadFolderPath, categoryPath);
+            moveFilesToCategoryFolder(tmpFolder, categoryPath);
         }
     } finally {
         await driver.quit();
